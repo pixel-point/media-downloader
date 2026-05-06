@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func presentWindow(activate: Bool) {
         let window = makeWindowIfNeeded()
+        centerWindowOnCurrentDisplay(window)
         window.makeKeyAndOrderFront(nil)
 
         if activate {
@@ -55,11 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return window
         }
 
-        let visibleFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 900, height: 1060)
-        let windowSize = NSSize(
-            width: min(860, max(760, visibleFrame.width - 32)),
-            height: min(1060, max(760, visibleFrame.height - 24))
-        )
+        let windowSize = preferredWindowSize(for: currentDisplayVisibleFrame())
 
         let contentView = NSHostingView(
             rootView: ContentView(model: model)
@@ -81,13 +78,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.level = .normal
         window.collectionBehavior = [.moveToActiveSpace]
         window.title = "Media Downloader"
+        centerWindowOnCurrentDisplay(window)
+
+        self.window = window
+        return window
+    }
+
+    private func centerWindowOnCurrentDisplay(_ window: NSWindow) {
+        let visibleFrame = currentDisplayVisibleFrame()
+        let windowSize = window.frame.size
         window.setFrameOrigin(NSPoint(
             x: visibleFrame.midX - windowSize.width / 2,
             y: visibleFrame.midY - windowSize.height / 2
         ))
+    }
 
-        self.window = window
-        return window
+    private func currentDisplayVisibleFrame() -> NSRect {
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main
+        return screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 900, height: 1060)
+    }
+
+    private func preferredWindowSize(for visibleFrame: NSRect) -> NSSize {
+        NSSize(
+            width: min(860, max(760, visibleFrame.width - 32)),
+            height: min(1060, max(760, visibleFrame.height - 24))
+        )
     }
 }
 
@@ -98,5 +114,13 @@ final class SpotlightWindow: NSWindow {
 
     override var canBecomeMain: Bool {
         true
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, KeyboardEventRouter.shared.handle(event) {
+            return
+        }
+
+        super.sendEvent(event)
     }
 }

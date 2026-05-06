@@ -11,6 +11,7 @@ let package = Package(
         .executable(name: "MediaDownloader", targets: ["MediaDownloader"])
     ],
     targets: [
-        .executableTarget(name: "MediaDownloader")
+        .executableTarget(name: "MediaDownloader"),
+        .testTarget(name: "MediaDownloaderTests", dependencies: ["MediaDownloader"])
     ]
 )

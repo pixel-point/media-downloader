@@ -76,6 +76,15 @@ final class AppModel: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    func deleteHistoryItem(_ item: DownloadItem) {
+        history.removeAll { $0.id == item.id }
+        historyStore.save(history)
+
+        if activeTrimSession?.item.id == item.id {
+            activeTrimSession = nil
+        }
+    }
+
     func editTrim(_ item: DownloadItem) {
         activeTrimSession = ActiveTrimSession(item: item)
     }

@@ -7,6 +7,7 @@ struct DownloadInputView: View {
     let onSubmit: () -> Void
     let onPaste: () -> Void
     let onChooseFolder: () -> Void
+    let onFocusHistory: () -> Void
     @State private var isHovering = false
 
     var body: some View {
@@ -15,7 +16,8 @@ struct DownloadInputView: View {
                 text: $text,
                 placeholder: "Paste Instagram, X, or YouTube URL",
                 onSubmit: onSubmit,
-                onPaste: onPaste
+                onPaste: onPaste,
+                onTab: onFocusHistory
             )
             .frame(height: 36)
 
@@ -44,7 +46,7 @@ struct DownloadInputView: View {
         .background(.ultraThinMaterial, in: Capsule(style: .continuous))
         .overlay {
             Capsule(style: .continuous)
-                .stroke(.white.opacity(0.16), lineWidth: 1)
+                .strokeBorder(.white.opacity(0.16), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.22), radius: 28, x: 0, y: 18)
         .onHover { isHovering = $0 }

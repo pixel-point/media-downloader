@@ -6,6 +6,7 @@ struct PasteAwareTextField: NSViewRepresentable {
     let placeholder: String
     let onSubmit: () -> Void
     let onPaste: () -> Void
+    let onTab: () -> Void
 
     func makeNSView(context: Context) -> PastingTextField {
         let textField = PastingTextField()
@@ -40,16 +41,18 @@ struct PasteAwareTextField: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onSubmit: onSubmit)
+        Coordinator(text: $text, onSubmit: onSubmit, onTab: onTab)
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         @Binding private var text: String
         private let onSubmit: () -> Void
+        private let onTab: () -> Void
 
-        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
+        init(text: Binding<String>, onSubmit: @escaping () -> Void, onTab: @escaping () -> Void) {
             _text = text
             self.onSubmit = onSubmit
+            self.onTab = onTab
         }
 
         func controlTextDidChange(_ obj: Notification) {
@@ -60,6 +63,11 @@ struct PasteAwareTextField: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 onSubmit()
+                return true
+            }
+
+            if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                onTab()
                 return true
             }
 
@@ -78,6 +86,11 @@ final class PastingTextField: NSTextField {
 
     override var allowsVibrancy: Bool {
         true
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .iBeam)
     }
 
     override func viewDidMoveToWindow() {

@@ -93,6 +93,7 @@ actor MediaDownloaderService {
 
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = arguments
+            process.environment = DependencyChecker.processEnvironment
             process.standardOutput = stdout
             process.standardError = stderr
 

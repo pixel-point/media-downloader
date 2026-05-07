@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var transitionGeneration = 0
     @State private var historySelectionIndex: Int?
     @State private var keyboardScrollIndex: Int?
+    @State private var trimPlaybackCommand = 0
     @State private var copiedHistoryItemID: DownloadItem.ID?
     @State private var suppressHistoryHover = false
 
@@ -38,6 +39,7 @@ struct ContentView: View {
                 if let session = displayedTrimSession {
                     VideoTrimPanelView(
                         session: session,
+                        playbackCommand: trimPlaybackCommand,
                         onClose: model.closeTrim,
                         onCopy: model.copyActiveTrim,
                         onSave: model.saveActiveTrim
@@ -102,6 +104,9 @@ struct ContentView: View {
         .onChange(of: historySelectionIndex) { _, _ in
             installKeyboardRouter()
         }
+        .onChange(of: displayedTrimSession?.id) { _, _ in
+            installKeyboardRouter()
+        }
         .animation(.easeOut(duration: 0.16), value: model.history)
     }
 
@@ -149,6 +154,10 @@ struct ContentView: View {
     }
 
     private func runTrimModeTransition(to session: ActiveTrimSession?) {
+        guard session != nil || displayedTrimSession != nil else {
+            return
+        }
+
         let generation = nextTransitionGeneration()
 
         if let session, displayedTrimSession != nil {
@@ -326,6 +335,11 @@ struct ContentView: View {
     }
 
     private func handleKeyboardEvent(_ event: NSEvent) -> Bool {
+        if event.keyCode == 49, displayedTrimSession != nil {
+            trimPlaybackCommand += 1
+            return true
+        }
+
         if event.keyCode == 48 {
             if historySelectionIndex == nil {
                 guard !model.history.isEmpty else { return false }

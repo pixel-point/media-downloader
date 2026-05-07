@@ -4,6 +4,7 @@ import SwiftUI
 
 struct VideoTrimPanelView: View {
     let session: ActiveTrimSession
+    let playbackCommand: Int
     let onClose: () -> Void
     let onCopy: (TrimSelection) async throws -> Void
     let onSave: (TrimSelection) async throws -> URL
@@ -76,6 +77,9 @@ struct VideoTrimPanelView: View {
         .shadow(color: .black.opacity(0.24), radius: 32, x: 0, y: 18)
         .onHover { isHoveringVideo = $0 }
         .onAppear(perform: loadVideo)
+        .onChange(of: playbackCommand) { _, _ in
+            togglePlayback()
+        }
         .onDisappear {
             player.pause()
             removeTimeObserver()
@@ -101,7 +105,7 @@ struct VideoTrimPanelView: View {
 
                     HStack(spacing: 8) {
                         overlayButton(systemName: copySucceeded ? "checkmark" : "doc.on.doc", help: "Copy trim", action: copyTrim)
-                        overlayButton(systemName: "square.and.arrow.down", help: "Save trim", action: saveTrim)
+                        overlayButton(systemName: "externaldrive", help: "Save trim", action: saveTrim)
                     }
                 }
             }
@@ -224,7 +228,7 @@ struct VideoTrimPanelView: View {
     }
 
     private func saveTrim() {
-        runExport(label: "Saved trim.") {
+        runExport(label: nil) {
             _ = try await onSave(selection.clamped(to: duration))
         }
     }

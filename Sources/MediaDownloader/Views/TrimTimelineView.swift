@@ -125,7 +125,7 @@ final class TrimTimelineControl: NSView {
     }
 
     private var frameStripRect: CGRect {
-        timelineRect.insetBy(dx: handleWidth + 2, dy: borderWidth / 2)
+        timelineRect.insetBy(dx: borderWidth / 2, dy: borderWidth / 2)
     }
 
     private var selectedStartX: CGFloat {
@@ -248,9 +248,10 @@ final class TrimTimelineControl: NSView {
         NSColor.black.withAlphaComponent(0.72).setFill()
         let gripHeight: CGFloat = 18
         let gripY = rect.midY - gripHeight / 2
+        let gripCenterX = rect.midX + (roundedLeft ? -1.0 : 1.0)
         for offset in [-2.0, 2.0] {
             NSBezierPath(
-                roundedRect: CGRect(x: rect.midX + offset - 0.65, y: gripY, width: 1.3, height: gripHeight),
+                roundedRect: CGRect(x: gripCenterX + offset - 0.65, y: gripY, width: 1.3, height: gripHeight),
                 xRadius: 1,
                 yRadius: 1
             ).fill()

@@ -19,21 +19,26 @@ enum MediaDownloaderApp {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = AppModel()
     private var window: SpotlightWindow?
+    private var setupWindow: SpotlightWindow?
+    private var dependencyStatus = DependencyChecker.check()
+    private let forceSetupWindow = ProcessInfo.processInfo.arguments.contains("--show-dependency-setup")
+    private var didPassForcedSetup = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        presentWindow(activate: true)
+        presentReadyWindow(activate: true)
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        presentWindow(activate: false)
+        presentReadyWindow(activate: false)
     }
 
     func applicationDidResignActive(_ notification: Notification) {
         window?.orderOut(nil)
+        setupWindow?.orderOut(nil)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        presentWindow(activate: true)
+        presentReadyWindow(activate: true)
         return true
     }
 
@@ -41,8 +46,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    private func presentReadyWindow(activate: Bool) {
+        dependencyStatus = DependencyChecker.check()
+
+        if dependencyStatus.isSatisfied && (!forceSetupWindow || didPassForcedSetup) {
+            setupWindow?.orderOut(nil)
+            presentWindow(activate: activate)
+        } else {
+            window?.orderOut(nil)
+            presentSetupWindow(activate: activate)
+        }
+    }
+
     private func presentWindow(activate: Bool) {
         let window = makeWindowIfNeeded()
+        centerWindowOnCurrentDisplay(window)
+        window.makeKeyAndOrderFront(nil)
+
+        if activate {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func presentSetupWindow(activate: Bool) {
+        let window = makeSetupWindowIfNeeded()
+        window.contentView = makeSetupContentView()
         centerWindowOnCurrentDisplay(window)
         window.makeKeyAndOrderFront(nil)
 
@@ -82,6 +110,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.window = window
         return window
+    }
+
+    private func makeSetupWindowIfNeeded() -> SpotlightWindow {
+        if let setupWindow {
+            return setupWindow
+        }
+
+        let window = SpotlightWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 360),
+            styleMask: [.borderless, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.isMovableByWindowBackground = true
+        window.level = .normal
+        window.collectionBehavior = [.moveToActiveSpace]
+        window.title = "Media Downloader Setup"
+
+        self.setupWindow = window
+        return window
+    }
+
+    private func makeSetupContentView() -> NSView {
+        NSHostingView(
+            rootView: DependencySetupView(
+                status: dependencyStatus,
+                onCopyPrompt: copyInstallPrompt,
+                onCheckAgain: checkDependenciesAgain
+            )
+            .frame(width: 520, height: 360)
+        )
+    }
+
+    private func copyInstallPrompt() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(DependencyChecker.installPrompt, forType: .string)
+    }
+
+    private func checkDependenciesAgain() {
+        dependencyStatus = DependencyChecker.check()
+
+        if dependencyStatus.isSatisfied {
+            didPassForcedSetup = true
+            setupWindow?.orderOut(nil)
+            presentWindow(activate: true)
+        } else {
+            presentSetupWindow(activate: true)
+        }
     }
 
     private func centerWindowOnCurrentDisplay(_ window: NSWindow) {

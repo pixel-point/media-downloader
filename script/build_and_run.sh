@@ -48,7 +48,11 @@ cat >"$INFO_PLIST" <<PLIST
 PLIST
 
 open_app() {
-  /usr/bin/open -n "$APP_BUNDLE"
+  if [[ "$#" -gt 0 ]]; then
+    /usr/bin/open -n "$APP_BUNDLE" --args "$@"
+  else
+    /usr/bin/open -n "$APP_BUNDLE"
+  fi
 }
 
 case "$MODE" in
@@ -71,8 +75,11 @@ case "$MODE" in
     sleep 1
     pgrep -x "$APP_NAME" >/dev/null
     ;;
+  --setup|setup)
+    open_app --show-dependency-setup
+    ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--setup]" >&2
     exit 2
     ;;
 esac

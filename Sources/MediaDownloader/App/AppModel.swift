@@ -18,6 +18,7 @@ final class AppModel: ObservableObject {
     private let updateChecker = UpdateChecker()
     private var pasteTask: Task<Void, Never>?
     private var didRunAutomaticUpdateCheck = false
+    private var settingsWindowController: SettingsWindowController?
 
     var downloadFolderPath: String {
         preferences.downloadFolder.path
@@ -138,17 +139,16 @@ final class AppModel: ObservableObject {
     }
 
     func showSettings() {
-        let alert = NSAlert()
-        alert.messageText = "Settings"
-        alert.informativeText = "Keyboard shortcuts"
-        alert.icon = NSImage(named: NSImage.applicationIconName)
-        alert.accessoryView = SettingsAccessoryView(preferences: preferences)
-        alert.addButton(withTitle: "Check for Updates")
-        alert.addButton(withTitle: "Done")
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            checkForUpdates(manual: true)
+        if settingsWindowController == nil {
+            settingsWindowController = SettingsWindowController(
+                preferences: preferences,
+                onCheckForUpdates: { [weak self] in
+                    self?.checkForUpdates(manual: true)
+                }
+            )
         }
+
+        settingsWindowController?.show()
     }
 
     func hotKeyShortcut(for action: HotKeyAction) -> HotKeyShortcut {
@@ -268,8 +268,4 @@ final class AppModel: ObservableObject {
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
-}
-
-private func SettingsAccessoryView(preferences: PreferencesStore) -> NSView {
-    SettingsShortcutTableView(preferences: preferences)
 }

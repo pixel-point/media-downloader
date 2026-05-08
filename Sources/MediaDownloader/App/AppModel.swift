@@ -168,7 +168,10 @@ final class AppModel: ObservableObject {
         activeTrimSession = nil
     }
 
-    func saveActiveTrim(_ selection: TrimSelection) async throws -> URL {
+    func saveActiveTrim(
+        _ selection: TrimSelection,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
         guard let session = activeTrimSession else {
             throw TrimExportError.invalidRange
         }
@@ -177,11 +180,15 @@ final class AppModel: ObservableObject {
         return try await trimExporter.exportTrim(
             sourceURL: session.fileURL,
             selection: selection,
-            to: outputURL
+            to: outputURL,
+            onProgress: onProgress
         )
     }
 
-    func copyActiveTrim(_ selection: TrimSelection) async throws {
+    func copyActiveTrim(
+        _ selection: TrimSelection,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws {
         guard let session = activeTrimSession else {
             throw TrimExportError.invalidRange
         }
@@ -190,7 +197,8 @@ final class AppModel: ObservableObject {
         let trimmedURL = try await trimExporter.exportTrim(
             sourceURL: session.fileURL,
             selection: selection,
-            to: outputURL
+            to: outputURL,
+            onProgress: onProgress
         )
         ClipboardService.copyFile(trimmedURL)
     }

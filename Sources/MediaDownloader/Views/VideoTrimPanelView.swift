@@ -6,8 +6,8 @@ struct VideoTrimPanelView: View {
     let session: ActiveTrimSession
     let playbackCommand: Int
     let onClose: () -> Void
-    let onCopy: (TrimSelection) async throws -> Void
-    let onSave: (TrimSelection) async throws -> URL
+    let onCopy: (TrimSelection, @escaping @Sendable (Double) -> Void) async throws -> Void
+    let onSave: (TrimSelection, @escaping @Sendable (Double) -> Void) async throws -> URL
 
     @State private var player = AVPlayer()
     @State private var duration: Double = 0
@@ -22,6 +22,7 @@ struct VideoTrimPanelView: View {
     @State private var boundaryObserver: Any?
     @State private var copySucceeded = false
     @State private var isPreparingPreview = true
+    @State private var exportProgress: Double = 0
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -126,7 +127,8 @@ struct VideoTrimPanelView: View {
             } else if isExporting {
                 LoadingOverlay(
                     title: "Exporting trim",
-                    subtitle: "Saving your selected clip."
+                    subtitle: "Saving your selected clip.",
+                    progress: exportProgress
                 )
             }
         }
@@ -325,7 +327,7 @@ struct VideoTrimPanelView: View {
 
     private func copyTrim() {
         runExport(label: nil) {
-            try await onCopy(selection.clamped(to: duration))
+            try await onCopy(selection.clamped(to: duration), updateExportProgress)
         } onSuccess: {
             copySucceeded = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -336,7 +338,7 @@ struct VideoTrimPanelView: View {
 
     private func saveTrim() {
         runExport(label: nil) {
-            _ = try await onSave(selection.clamped(to: duration))
+            _ = try await onSave(selection.clamped(to: duration), updateExportProgress)
         }
     }
 
@@ -347,6 +349,7 @@ struct VideoTrimPanelView: View {
     ) {
         guard !isExporting, !isPreparingPreview else { return }
         isExporting = true
+        exportProgress = 0
         feedback = nil
 
         Task {
@@ -359,6 +362,13 @@ struct VideoTrimPanelView: View {
             }
 
             isExporting = false
+            exportProgress = 0
+        }
+    }
+
+    private func updateExportProgress(_ progress: Double) {
+        DispatchQueue.main.async {
+            exportProgress = progress
         }
     }
 }
@@ -425,6 +435,7 @@ private struct TrimExportIndicator: View {
 private struct LoadingOverlay: View {
     let title: String
     let subtitle: String
+    var progress: Double? = nil
 
     var body: some View {
         VStack(spacing: 10) {
@@ -440,6 +451,25 @@ private struct LoadingOverlay: View {
                 .foregroundStyle(.white.opacity(0.68))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 220)
+
+            if let progress {
+                VStack(spacing: 6) {
+                    Text("\(Int(progress.rounded()))%")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.86))
+
+                    ZStack(alignment: .leading) {
+                        Capsule(style: .continuous)
+                            .fill(.white.opacity(0.16))
+                            .frame(width: 170, height: 6)
+
+                        Capsule(style: .continuous)
+                            .fill(.white.opacity(0.88))
+                            .frame(width: max(10, 170 * max(0, min(progress, 100)) / 100), height: 6)
+                    }
+                }
+                .padding(.top, 2)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)

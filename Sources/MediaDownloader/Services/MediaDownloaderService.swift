@@ -17,6 +17,11 @@ enum MediaDownloaderError: LocalizedError {
     }
 }
 
+struct YouTubePreviewSessionInfo {
+    let title: String
+    let previewURL: URL
+}
+
 actor MediaDownloaderService {
     private let fileManager = FileManager.default
     private static let progressPrefix = "__MD_PROGRESS__"
@@ -57,6 +62,63 @@ actor MediaDownloaderService {
         return DownloadResult(fileURL: fileURL, title: title)
     }
 
+    func prepareYouTubeTrimSession(sourceURL: String, quality: DownloadQuality) async throws -> YouTubePreviewSessionInfo {
+        try await requireTool("yt-dlp")
+
+        let output = try await runProcess(
+            executable: "/usr/bin/env",
+            arguments: Self.previewArguments(sourceURL: sourceURL, quality: quality)
+        )
+
+        let lines = output.stdout
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard lines.count >= 2, let previewURL = URL(string: lines[1]) else {
+            throw MediaDownloaderError.processFailed("Could not prepare a YouTube preview.")
+        }
+
+        return YouTubePreviewSessionInfo(title: lines[0], previewURL: previewURL)
+    }
+
+    func downloadYouTubeSection(
+        sourceURL: String,
+        selection: TrimSelection,
+        quality: DownloadQuality,
+        destinationURL: URL,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
+        try await requireTool("yt-dlp")
+        try await requireTool("ffmpeg")
+        try fileManager.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? fileManager.removeItem(at: destinationURL)
+
+        let arguments = Self.sectionDownloadArguments(
+            sourceURL: sourceURL,
+            selection: selection,
+            quality: quality,
+            destinationURL: destinationURL
+        )
+
+        _ = try await runProcess(executable: "/usr/bin/env", arguments: arguments) { line in
+            guard let progress = Self.progressValue(from: line) else {
+                return
+            }
+
+            onProgress?(progress)
+        }
+
+        guard fileManager.fileExists(atPath: destinationURL.path) else {
+            throw MediaDownloaderError.missingOutputFile
+        }
+
+        return destinationURL
+    }
+
     static func downloadArguments(sourceURL: String, destinationFolder: URL, quality: DownloadQuality) -> [String] {
         var arguments = [
             "yt-dlp",
@@ -70,6 +132,53 @@ actor MediaDownloaderService {
             "--output", "%(title).180B [%(id)s].%(ext)s",
             "--print", "after_move:%(filepath)s",
             "--print", "after_move:%(title)s"
+        ]
+
+        if let formatSelector = quality.formatSelector {
+            arguments.append(contentsOf: ["-f", formatSelector])
+        }
+
+        if let javaScriptRuntimeArgument = DependencyChecker.javaScriptRuntimeArgument() {
+            arguments.append(contentsOf: javaScriptRuntimeArgument)
+        }
+
+        arguments.append(sourceURL)
+        return arguments
+    }
+
+    static func previewArguments(sourceURL: String, quality: DownloadQuality) -> [String] {
+        var arguments = [
+            "yt-dlp",
+            "--no-playlist",
+            "--print", "title",
+            "-f", quality.previewFormatSelector,
+            "-g"
+        ]
+
+        if let javaScriptRuntimeArgument = DependencyChecker.javaScriptRuntimeArgument() {
+            arguments.append(contentsOf: javaScriptRuntimeArgument)
+        }
+
+        arguments.append(sourceURL)
+        return arguments
+    }
+
+    static func sectionDownloadArguments(
+        sourceURL: String,
+        selection: TrimSelection,
+        quality: DownloadQuality,
+        destinationURL: URL
+    ) -> [String] {
+        var arguments = [
+            "yt-dlp",
+            "--no-playlist",
+            "--newline",
+            "--progress-template", "download:\(progressPrefix)%(progress._percent_str)s",
+            "--download-sections", "*\(formatTimestamp(selection.start))-\(formatTimestamp(selection.end))",
+            "--force-overwrites",
+            "--merge-output-format", "mp4",
+            "--recode-video", "mp4",
+            "--output", destinationURL.path
         ]
 
         if let formatSelector = quality.formatSelector {
@@ -98,6 +207,16 @@ actor MediaDownloaderService {
         }
 
         return max(0, min(percent, 100))
+    }
+
+    static func formatTimestamp(_ seconds: Double) -> String {
+        let clamped = max(0, seconds)
+        let totalMilliseconds = Int((clamped * 1000).rounded())
+        let hours = totalMilliseconds / 3_600_000
+        let minutes = (totalMilliseconds % 3_600_000) / 60_000
+        let secs = (totalMilliseconds % 60_000) / 1000
+        let milliseconds = totalMilliseconds % 1000
+        return String(format: "%02d:%02d:%02d.%03d", hours, minutes, secs, milliseconds)
     }
 
     private func requireTool(_ tool: String) async throws {

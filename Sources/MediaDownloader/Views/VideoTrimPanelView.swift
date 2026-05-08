@@ -151,7 +151,7 @@ struct VideoTrimPanelView: View {
     private func loadVideo() {
         isPreparingPreview = true
         removePlaybackObservers()
-        player.replaceCurrentItem(with: AVPlayerItem(url: session.fileURL))
+        player.replaceCurrentItem(with: AVPlayerItem(url: session.previewURL))
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.02, preferredTimescale: 600),
             queue: .main
@@ -169,7 +169,7 @@ struct VideoTrimPanelView: View {
         }
 
         Task {
-            let asset = AVURLAsset(url: session.fileURL)
+            let asset = AVURLAsset(url: session.previewURL)
             let loadedDuration = (try? await asset.load(.duration)) ?? .zero
             let seconds = CMTimeGetSeconds(loadedDuration)
             duration = seconds.isFinite && seconds > 0 ? seconds : 0

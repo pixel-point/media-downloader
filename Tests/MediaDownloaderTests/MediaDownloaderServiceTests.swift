@@ -46,6 +46,28 @@ final class MediaDownloaderServiceTests: XCTestCase {
         XCTAssertNil(MediaDownloaderService.progressValue(from: "plain output"))
     }
 
+    func testPreviewArgumentsPreferDirectProgressivePreviewFormats() {
+        let arguments = MediaDownloaderService.previewArguments(
+            sourceURL: "https://www.youtube.com/watch?v=123",
+            quality: .p1440
+        )
+
+        XCTAssertContainsSequence(arguments, ["-f", "22/18/b[ext=mp4][height<=720]/b[height<=720]/b"])
+        XCTAssertEqual(arguments.last, "https://www.youtube.com/watch?v=123")
+    }
+
+    func testSectionDownloadArgumentsIncludeSelectedTimeRange() {
+        let arguments = MediaDownloaderService.sectionDownloadArguments(
+            sourceURL: "https://www.youtube.com/watch?v=123",
+            selection: TrimSelection(start: 2.125, end: 5.75),
+            quality: .p1080,
+            destinationURL: URL(fileURLWithPath: "/tmp/clip.mp4")
+        )
+
+        XCTAssertContainsSequence(arguments, ["--download-sections", "*00:00:02.125-00:00:05.750"])
+        XCTAssertContainsSequence(arguments, ["--output", "/tmp/clip.mp4"])
+    }
+
     private func XCTAssertContainsSequence(
         _ arguments: [String],
         _ expected: [String],

@@ -12,4 +12,15 @@ enum URLValidator {
 
         return components.host?.isEmpty == false
     }
+
+    static func isYouTubeURL(_ value: String) -> Bool {
+        guard
+            let host = URLComponents(string: value.trimmingCharacters(in: .whitespacesAndNewlines))?.host?.lowercased()
+        else {
+            return false
+        }
+
+        let normalized = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        return normalized == "youtube.com" || normalized == "m.youtube.com" || normalized == "youtu.be"
+    }
 }

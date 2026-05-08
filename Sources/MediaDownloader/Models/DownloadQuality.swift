@@ -37,6 +37,25 @@ enum DownloadQuality: String, CaseIterable, Codable {
         }
     }
 
+    var previewFormatSelector: String {
+        "22/18/b[ext=mp4][height<=720]/b[height<=720]/b"
+    }
+
+    var maxHeight: Int? {
+        switch self {
+        case .automatic:
+            return nil
+        case .p720:
+            return 720
+        case .p1080:
+            return 1080
+        case .p1440:
+            return 1440
+        case .p2160:
+            return 2160
+        }
+    }
+
     static let defaultValue: Self = .automatic
 
     private func exactResolutionSelector(primaryHeight: Int, fallbacks: [Int]) -> String {

@@ -69,10 +69,18 @@ actor TrimExportService {
     func saveURL(for sourceURL: URL, selection: TrimSelection) -> URL {
         let folder = sourceURL.deletingLastPathComponent()
         let name = sourceURL.deletingPathExtension().lastPathComponent
+        return saveURL(in: folder, baseName: name, selection: selection)
+    }
+
+    func saveURL(forTitle title: String, in folder: URL, selection: TrimSelection) -> URL {
+        saveURL(in: folder, baseName: sanitizedBaseName(title), selection: selection)
+    }
+
+    private func saveURL(in folder: URL, baseName: String, selection: TrimSelection) -> URL {
         let start = Int(selection.start.rounded())
         let end = Int(selection.end.rounded())
         return folder
-            .appendingPathComponent("\(name) trim \(start)-\(end)s")
+            .appendingPathComponent("\(baseName) trim \(start)-\(end)s")
             .appendingPathExtension("mp4")
     }
 
@@ -88,6 +96,21 @@ actor TrimExportService {
 
     private nonisolated static func formatTime(_ seconds: Double) -> String {
         String(format: "%.3f", seconds)
+    }
+
+    private func sanitizedBaseName(_ value: String) -> String {
+        let cleaned = value.replacingOccurrences(
+            of: #"[^A-Za-z0-9 ._\-\[\]\(\)]+"#,
+            with: "-",
+            options: .regularExpression
+        )
+        let collapsedWhitespace = cleaned.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let trimmed = collapsedWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Clip" : trimmed
     }
 
     private func runProcess(

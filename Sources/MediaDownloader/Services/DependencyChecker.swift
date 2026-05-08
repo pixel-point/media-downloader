@@ -56,7 +56,14 @@ enum DependencyChecker {
             .split(separator: ":")
             .map(String.init)
 
+        let homeDirectory = NSHomeDirectory()
         let commonDirectories = [
+            URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent(".local/bin", isDirectory: true)
+                .path,
+            URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent("bin", isDirectory: true)
+                .path,
             "/Applications/Codex.app/Contents/Resources",
             "/opt/homebrew/bin",
             "/usr/local/bin",

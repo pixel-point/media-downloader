@@ -27,6 +27,7 @@ struct ContentView: View {
                 DownloadInputView(
                     text: $model.inputText,
                     isDownloading: model.isDownloading,
+                    downloadProgress: model.downloadProgress,
                     folderName: URL(fileURLWithPath: model.downloadFolderPath).lastPathComponent,
                     onSubmit: model.submitInput,
                     onPaste: model.handlePasteCandidate,

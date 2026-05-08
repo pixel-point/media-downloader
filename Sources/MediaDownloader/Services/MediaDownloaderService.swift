@@ -19,8 +19,14 @@ enum MediaDownloaderError: LocalizedError {
 
 actor MediaDownloaderService {
     private let fileManager = FileManager.default
+    private static let progressPrefix = "__MD_PROGRESS__"
 
-    func download(sourceURL: String, destinationFolder: URL, quality: DownloadQuality) async throws -> DownloadResult {
+    func download(
+        sourceURL: String,
+        destinationFolder: URL,
+        quality: DownloadQuality,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> DownloadResult {
         try await requireTool("yt-dlp")
         try await requireTool("ffmpeg")
         try fileManager.createDirectory(at: destinationFolder, withIntermediateDirectories: true)
@@ -32,8 +38,15 @@ actor MediaDownloaderService {
             quality: quality
         )
 
-        let output = try await runProcess(executable: "/usr/bin/env", arguments: arguments)
-        let lines = output
+        let output = try await runProcess(executable: "/usr/bin/env", arguments: arguments) { line in
+            guard let progress = Self.progressValue(from: line) else {
+                return
+            }
+
+            onProgress?(progress)
+        }
+
+        let lines = output.stdout
             .split(whereSeparator: \.isNewline)
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -48,7 +61,8 @@ actor MediaDownloaderService {
         var arguments = [
             "yt-dlp",
             "--no-playlist",
-            "--no-progress",
+            "--newline",
+            "--progress-template", "download:\(progressPrefix)%(progress._percent_str)s",
             "--restrict-filenames",
             "--merge-output-format", "mp4",
             "--recode-video", "mp4",
@@ -68,6 +82,22 @@ actor MediaDownloaderService {
 
         arguments.append(sourceURL)
         return arguments
+    }
+
+    static func progressValue(from line: String) -> Double? {
+        guard line.hasPrefix(progressPrefix) else {
+            return nil
+        }
+
+        let rawValue = line.dropFirst(progressPrefix.count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "%", with: "")
+
+        guard let percent = Double(rawValue) else {
+            return nil
+        }
+
+        return max(0, min(percent, 100))
     }
 
     private func requireTool(_ tool: String) async throws {
@@ -102,11 +132,16 @@ actor MediaDownloaderService {
         return newest
     }
 
-    private func runProcess(executable: String, arguments: [String]) async throws -> String {
+    private func runProcess(
+        executable: String,
+        arguments: [String],
+        onLine: @escaping @Sendable (String) -> Void = { _ in }
+    ) async throws -> ProcessOutput {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let stdout = Pipe()
             let stderr = Pipe()
+            let capture = ProcessCapture(onLine: onLine)
 
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = arguments
@@ -114,16 +149,34 @@ actor MediaDownloaderService {
             process.standardOutput = stdout
             process.standardError = stderr
 
+            let consumeData: @Sendable (Data, Bool) -> Void = { data, isStdout in
+                guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else {
+                    return
+                }
+
+                capture.append(chunk, isStdout: isStdout)
+            }
+
+            stdout.fileHandleForReading.readabilityHandler = { handle in
+                consumeData(handle.availableData, true)
+            }
+
+            stderr.fileHandleForReading.readabilityHandler = { handle in
+                consumeData(handle.availableData, false)
+            }
+
             process.terminationHandler = { process in
-                let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-                let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: outputData, encoding: .utf8) ?? ""
-                let error = String(data: errorData, encoding: .utf8) ?? ""
+                stdout.fileHandleForReading.readabilityHandler = nil
+                stderr.fileHandleForReading.readabilityHandler = nil
+
+                consumeData(stdout.fileHandleForReading.readDataToEndOfFile(), true)
+                consumeData(stderr.fileHandleForReading.readDataToEndOfFile(), false)
+                let output = capture.finish()
 
                 if process.terminationStatus == 0 {
                     continuation.resume(returning: output)
                 } else {
-                    continuation.resume(throwing: MediaDownloaderError.processFailed(error))
+                    continuation.resume(throwing: MediaDownloaderError.processFailed(output.stderr))
                 }
             }
 
@@ -132,6 +185,62 @@ actor MediaDownloaderService {
             } catch {
                 continuation.resume(throwing: error)
             }
+        }
+    }
+}
+
+private struct ProcessOutput {
+    let stdout: String
+    let stderr: String
+}
+
+private final class ProcessCapture {
+    private let queue = DispatchQueue(label: "MediaDownloaderService.ProcessOutput")
+    private let onLine: @Sendable (String) -> Void
+    private var stdoutOutput = ""
+    private var stderrOutput = ""
+    private var stdoutBuffer = ""
+    private var stderrBuffer = ""
+
+    init(onLine: @escaping @Sendable (String) -> Void) {
+        self.onLine = onLine
+    }
+
+    func append(_ chunk: String, isStdout: Bool) {
+        queue.sync {
+            if isStdout {
+                stdoutOutput += chunk
+                stdoutBuffer += chunk
+                emitCompletedLines(from: &stdoutBuffer)
+            } else {
+                stderrOutput += chunk
+                stderrBuffer += chunk
+                emitCompletedLines(from: &stderrBuffer)
+            }
+        }
+    }
+
+    func finish() -> ProcessOutput {
+        queue.sync {
+            if !stdoutBuffer.isEmpty {
+                onLine(stdoutBuffer)
+                stdoutBuffer.removeAll()
+            }
+
+            if !stderrBuffer.isEmpty {
+                onLine(stderrBuffer)
+                stderrBuffer.removeAll()
+            }
+
+            return ProcessOutput(stdout: stdoutOutput, stderr: stderrOutput)
+        }
+    }
+
+    private func emitCompletedLines(from buffer: inout String) {
+        while let newlineRange = buffer.rangeOfCharacter(from: .newlines) {
+            let line = String(buffer[..<newlineRange.lowerBound])
+            onLine(line)
+            buffer.removeSubrange(..<newlineRange.upperBound)
         }
     }
 }

@@ -13,6 +13,7 @@ final class MediaDownloaderServiceTests: XCTestCase {
 
         XCTAssertEqual(arguments.first, "yt-dlp")
         XCTAssertContainsSequence(arguments, ["-f", "bv*+ba/b"])
+        XCTAssertContainsSequence(arguments, ["--progress-template", "download:__MD_PROGRESS__%(progress._percent_str)s"])
         XCTAssertEqual(arguments.last, "https://example.com/watch?v=123")
     }
 
@@ -38,6 +39,11 @@ final class MediaDownloaderServiceTests: XCTestCase {
         )
 
         XCTAssertContainsSequence(arguments, ["-f", "(bv*[height=1440]+ba/bv*[height=1080]+ba/bv*[height=720]+ba/bv*[height=480]+ba/bv*[height=360]+ba/bv*[height=240]+ba/bv*[height=144]+ba/b[height<=1440])"])
+    }
+
+    func testProgressLineParsesToNumericPercent() {
+        XCTAssertEqual(MediaDownloaderService.progressValue(from: "__MD_PROGRESS__37.5%"), 37.5)
+        XCTAssertNil(MediaDownloaderService.progressValue(from: "plain output"))
     }
 
     private func XCTAssertContainsSequence(

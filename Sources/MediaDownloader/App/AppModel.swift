@@ -6,6 +6,7 @@ final class AppModel: ObservableObject {
     @Published var inputText = ""
     @Published private(set) var history: [DownloadItem] = []
     @Published private(set) var isDownloading = false
+    @Published private(set) var downloadProgress: Double?
     @Published var statusMessage: String?
     @Published var activeTrimSession: ActiveTrimSession?
     @Published private(set) var isCheckingForUpdates = false
@@ -203,13 +204,19 @@ final class AppModel: ObservableObject {
         }
 
         isDownloading = true
+        downloadProgress = 0
         statusMessage = "Downloading..."
 
         do {
             let result = try await downloader.download(
                 sourceURL: sourceURL,
                 destinationFolder: preferences.downloadFolder,
-                quality: preferences.downloadQuality
+                quality: preferences.downloadQuality,
+                onProgress: { [weak self] progress in
+                    Task { @MainActor in
+                        self?.downloadProgress = progress
+                    }
+                }
             )
             let thumbnailPath = try? await thumbnailGenerator.thumbnailPath(for: result.fileURL)
             let item = DownloadItem(
@@ -230,6 +237,7 @@ final class AppModel: ObservableObject {
             statusMessage = error.localizedDescription
         }
 
+        downloadProgress = nil
         isDownloading = false
     }
 

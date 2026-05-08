@@ -12,7 +12,7 @@ final class MediaDownloaderServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(arguments.first, "yt-dlp")
-        XCTAssertFalse(arguments.contains("-f"))
+        XCTAssertContainsSequence(arguments, ["-f", "bv*+ba/b"])
         XCTAssertEqual(arguments.last, "https://example.com/watch?v=123")
     }
 
@@ -25,7 +25,19 @@ final class MediaDownloaderServiceTests: XCTestCase {
             quality: .p2160
         )
 
-        XCTAssertContainsSequence(arguments, ["-f", "bv*[height<=2160]+ba/b[height<=2160]"])
+        XCTAssertContainsSequence(arguments, ["-f", "(bv*[height=2160]+ba/bv*[height=1440]+ba/bv*[height=1080]+ba/bv*[height=720]+ba/bv*[height=480]+ba/bv*[height=360]+ba/bv*[height=240]+ba/bv*[height=144]+ba/b[height<=2160])"])
+    }
+
+    func test1440QualityPrefersExactHeightBeforeFallbacks() {
+        let destinationFolder = URL(fileURLWithPath: "/tmp/MediaDownloader", isDirectory: true)
+
+        let arguments = MediaDownloaderService.downloadArguments(
+            sourceURL: "https://example.com/watch?v=123",
+            destinationFolder: destinationFolder,
+            quality: .p1440
+        )
+
+        XCTAssertContainsSequence(arguments, ["-f", "(bv*[height=1440]+ba/bv*[height=1080]+ba/bv*[height=720]+ba/bv*[height=480]+ba/bv*[height=360]+ba/bv*[height=240]+ba/bv*[height=144]+ba/b[height<=1440])"])
     }
 
     private func XCTAssertContainsSequence(

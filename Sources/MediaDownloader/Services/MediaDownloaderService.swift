@@ -52,7 +52,6 @@ actor MediaDownloaderService {
             "--restrict-filenames",
             "--merge-output-format", "mp4",
             "--recode-video", "mp4",
-            "-S", "vcodec:h264,acodec:aac,ext:mp4:m4a",
             "--paths", destinationFolder.path,
             "--output", "%(title).180B [%(id)s].%(ext)s",
             "--print", "after_move:%(filepath)s",

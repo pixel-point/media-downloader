@@ -25,17 +25,23 @@ enum DownloadQuality: String, CaseIterable, Codable {
     var formatSelector: String? {
         switch self {
         case .automatic:
-            return nil
+            return "bv*+ba/b"
         case .p720:
-            return "bv*[height<=720]+ba/b[height<=720]"
+            return exactResolutionSelector(primaryHeight: 720, fallbacks: [480, 360, 240, 144])
         case .p1080:
-            return "bv*[height<=1080]+ba/b[height<=1080]"
+            return exactResolutionSelector(primaryHeight: 1080, fallbacks: [720, 480, 360, 240, 144])
         case .p1440:
-            return "bv*[height<=1440]+ba/b[height<=1440]"
+            return exactResolutionSelector(primaryHeight: 1440, fallbacks: [1080, 720, 480, 360, 240, 144])
         case .p2160:
-            return "bv*[height<=2160]+ba/b[height<=2160]"
+            return exactResolutionSelector(primaryHeight: 2160, fallbacks: [1440, 1080, 720, 480, 360, 240, 144])
         }
     }
 
     static let defaultValue: Self = .automatic
+
+    private func exactResolutionSelector(primaryHeight: Int, fallbacks: [Int]) -> String {
+        let candidates = ([primaryHeight] + fallbacks).map { "bv*[height=\($0)]+ba" }
+        let progressiveFallback = "b[height<=\(primaryHeight)]"
+        return "(" + (candidates + [progressiveFallback]).joined(separator: "/") + ")"
+    }
 }

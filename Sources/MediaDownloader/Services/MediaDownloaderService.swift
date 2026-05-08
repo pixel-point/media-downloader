@@ -62,6 +62,10 @@ actor MediaDownloaderService {
             arguments.append(contentsOf: ["-f", formatSelector])
         }
 
+        if let javaScriptRuntimeArgument = DependencyChecker.javaScriptRuntimeArgument() {
+            arguments.append(contentsOf: javaScriptRuntimeArgument)
+        }
+
         arguments.append(sourceURL)
         return arguments
     }

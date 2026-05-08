@@ -35,12 +35,36 @@ enum DependencyChecker {
         return environment
     }
 
+    static func javaScriptRuntimeArgument() -> [String]? {
+        if let nodePath = executablePath(named: "node") {
+            return ["--js-runtimes", "node:\(nodePath)"]
+        }
+
+        if let denoPath = executablePath(named: "deno") {
+            return ["--js-runtimes", "deno:\(denoPath)"]
+        }
+
+        if let bunPath = executablePath(named: "bun") {
+            return ["--js-runtimes", "bun:\(bunPath)"]
+        }
+
+        return nil
+    }
+
     private static var searchDirectories: [String] {
         let pathDirectories = (ProcessInfo.processInfo.environment["PATH"] ?? "")
             .split(separator: ":")
             .map(String.init)
 
+        let homeDirectory = NSHomeDirectory()
         let commonDirectories = [
+            URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent(".local/bin", isDirectory: true)
+                .path,
+            URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent("bin", isDirectory: true)
+                .path,
+            "/Applications/Codex.app/Contents/Resources",
             "/opt/homebrew/bin",
             "/usr/local/bin",
             "/opt/local/bin",

@@ -4,6 +4,7 @@ import SwiftUI
 struct DownloadInputView: View {
     @Binding var text: String
     let isDownloading: Bool
+    let downloadProgress: Double?
     let folderName: String
     let onSubmit: () -> Void
     let onPaste: () -> Void
@@ -25,8 +26,7 @@ struct DownloadInputView: View {
             .frame(height: 36)
 
             if isDownloading {
-                CircularDownloadIndicator()
-                    .frame(width: 24, height: 24)
+                DownloadProgressBadge(progress: downloadProgress ?? 0)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
 
@@ -113,27 +113,28 @@ private final class InputMenuActionTarget: NSObject {
     }
 }
 
-private struct CircularDownloadIndicator: View {
-    @State private var rotation: Double = 0
+private struct DownloadProgressBadge: View {
+    let progress: Double
 
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.primary.opacity(0.12), lineWidth: 2.4)
+        let normalized = max(0, min(progress, 100))
 
-            Circle()
-                .trim(from: 0.08, to: 0.74)
-                .stroke(
-                    Color.primary.opacity(0.72),
-                    style: StrokeStyle(lineWidth: 2.4, lineCap: .round)
-                )
-                .rotationEffect(.degrees(rotation))
-        }
-        .padding(3)
-        .onAppear {
-            withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
-                rotation = 360
+        return VStack(alignment: .trailing, spacing: 4) {
+            Text("\(Int(normalized.rounded()))%")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.primary.opacity(0.82))
+
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.primary.opacity(0.12))
+                    .frame(width: 72, height: 5)
+
+                Capsule(style: .continuous)
+                    .fill(Color.primary.opacity(0.72))
+                    .frame(width: max(8, 72 * normalized / 100), height: 5)
             }
         }
+        .frame(width: 76, alignment: .trailing)
+        .animation(.easeOut(duration: 0.18), value: normalized)
     }
 }

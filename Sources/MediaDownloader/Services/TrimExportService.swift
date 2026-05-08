@@ -17,7 +17,12 @@ enum TrimExportError: LocalizedError {
 actor TrimExportService {
     private let fileManager = FileManager.default
 
-    func exportTrim(sourceURL: URL, selection: TrimSelection, to outputURL: URL) async throws -> URL {
+    func exportTrim(
+        sourceURL: URL,
+        selection: TrimSelection,
+        to outputURL: URL,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
         guard selection.end - selection.start >= 0.25 else {
             throw TrimExportError.invalidRange
         }
@@ -30,7 +35,12 @@ actor TrimExportService {
 
         let arguments = Self.exportArguments(sourceURL: sourceURL, selection: selection, outputURL: outputURL)
 
-        try await runProcess(executable: "/usr/bin/env", arguments: arguments)
+        try await runProcess(
+            executable: "/usr/bin/env",
+            arguments: arguments,
+            expectedDuration: selection.end - selection.start,
+            onProgress: onProgress
+        )
         return outputURL
     }
 
@@ -38,6 +48,8 @@ actor TrimExportService {
         [
             "ffmpeg",
             "-y",
+            "-progress", "pipe:1",
+            "-nostats",
             "-i", sourceURL.path,
             "-ss", formatTime(selection.start),
             "-t", formatTime(selection.end - selection.start),
@@ -57,10 +69,18 @@ actor TrimExportService {
     func saveURL(for sourceURL: URL, selection: TrimSelection) -> URL {
         let folder = sourceURL.deletingLastPathComponent()
         let name = sourceURL.deletingPathExtension().lastPathComponent
+        return saveURL(in: folder, baseName: name, selection: selection)
+    }
+
+    func saveURL(forTitle title: String, in folder: URL, selection: TrimSelection) -> URL {
+        saveURL(in: folder, baseName: sanitizedBaseName(title), selection: selection)
+    }
+
+    private func saveURL(in folder: URL, baseName: String, selection: TrimSelection) -> URL {
         let start = Int(selection.start.rounded())
         let end = Int(selection.end.rounded())
         return folder
-            .appendingPathComponent("\(name) trim \(start)-\(end)s")
+            .appendingPathComponent("\(baseName) trim \(start)-\(end)s")
             .appendingPathExtension("mp4")
     }
 
@@ -78,11 +98,32 @@ actor TrimExportService {
         String(format: "%.3f", seconds)
     }
 
-    private func runProcess(executable: String, arguments: [String]) async throws {
+    private func sanitizedBaseName(_ value: String) -> String {
+        let cleaned = value.replacingOccurrences(
+            of: #"[^A-Za-z0-9 ._\-\[\]\(\)]+"#,
+            with: "-",
+            options: .regularExpression
+        )
+        let collapsedWhitespace = cleaned.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let trimmed = collapsedWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Clip" : trimmed
+    }
+
+    private func runProcess(
+        executable: String,
+        arguments: [String],
+        expectedDuration: Double,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let stdout = Pipe()
             let stderr = Pipe()
+            let capture = TrimProcessCapture(expectedDuration: expectedDuration, onProgress: onProgress)
 
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = arguments
@@ -90,7 +131,23 @@ actor TrimExportService {
             process.standardOutput = stdout
             process.standardError = stderr
 
+            stdout.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else {
+                    return
+                }
+
+                capture.appendProgressChunk(chunk)
+            }
+
             process.terminationHandler = { process in
+                stdout.fileHandleForReading.readabilityHandler = nil
+                let remainingProgressData = stdout.fileHandleForReading.readDataToEndOfFile()
+                if !remainingProgressData.isEmpty, let chunk = String(data: remainingProgressData, encoding: .utf8) {
+                    capture.appendProgressChunk(chunk)
+                }
+
+                capture.finish()
                 let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
                 let error = String(data: errorData, encoding: .utf8) ?? ""
 
@@ -106,6 +163,56 @@ actor TrimExportService {
             } catch {
                 continuation.resume(throwing: error)
             }
+        }
+    }
+}
+
+private final class TrimProcessCapture {
+    private let queue = DispatchQueue(label: "TrimExportService.Progress")
+    private let expectedDuration: Double
+    private let onProgress: (@Sendable (Double) -> Void)?
+    private var buffer = ""
+    private var latestProgress: Double = 0
+
+    init(expectedDuration: Double, onProgress: (@Sendable (Double) -> Void)?) {
+        self.expectedDuration = max(expectedDuration, 0.001)
+        self.onProgress = onProgress
+    }
+
+    func appendProgressChunk(_ chunk: String) {
+        queue.sync {
+            buffer += chunk
+
+            while let newlineRange = buffer.rangeOfCharacter(from: .newlines) {
+                let line = String(buffer[..<newlineRange.lowerBound])
+                buffer.removeSubrange(..<newlineRange.upperBound)
+                handle(line: line)
+            }
+        }
+    }
+
+    func finish() {
+        queue.sync {
+            if !buffer.isEmpty {
+                handle(line: buffer)
+                buffer.removeAll()
+            }
+
+            latestProgress = 100
+            onProgress?(100)
+        }
+    }
+
+    private func handle(line: String) {
+        let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return }
+
+        if parts[0] == "out_time_ms", let outTimeMs = Double(parts[1]) {
+            let seconds = outTimeMs / 1_000_000
+            let progress = max(0, min((seconds / expectedDuration) * 100, 100))
+            guard abs(progress - latestProgress) >= 0.5 || progress == 100 else { return }
+            latestProgress = progress
+            onProgress?(progress)
         }
     }
 }

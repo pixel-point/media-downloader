@@ -6,6 +6,7 @@ final class AppModel: ObservableObject {
     @Published var inputText = ""
     @Published private(set) var history: [DownloadItem] = []
     @Published private(set) var isDownloading = false
+    @Published private(set) var downloadProgress: Double?
     @Published var statusMessage: String?
     @Published var activeTrimSession: ActiveTrimSession?
     @Published private(set) var isCheckingForUpdates = false
@@ -22,6 +23,10 @@ final class AppModel: ObservableObject {
 
     var downloadFolderPath: String {
         preferences.downloadFolder.path
+    }
+
+    var downloadQuality: DownloadQuality {
+        preferences.downloadQuality
     }
 
     init() {
@@ -84,7 +89,7 @@ final class AppModel: ObservableObject {
         history.removeAll { $0.id == item.id }
         historyStore.save(history)
 
-        if activeTrimSession?.item.id == item.id {
+        if activeTrimSession?.historyItemID == item.id {
             activeTrimSession = nil
         }
     }
@@ -163,31 +168,75 @@ final class AppModel: ObservableObject {
         activeTrimSession = nil
     }
 
-    func saveActiveTrim(_ selection: TrimSelection) async throws -> URL {
+    func saveActiveTrim(
+        _ selection: TrimSelection,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
         guard let session = activeTrimSession else {
             throw TrimExportError.invalidRange
         }
 
-        let outputURL = await trimExporter.saveURL(for: session.fileURL, selection: selection)
-        return try await trimExporter.exportTrim(
-            sourceURL: session.fileURL,
-            selection: selection,
-            to: outputURL
-        )
+        switch session.exportStrategy {
+        case .localFile(let fileURL):
+            let outputURL = await trimExporter.saveURL(for: fileURL, selection: selection)
+            return try await trimExporter.exportTrim(
+                sourceURL: fileURL,
+                selection: selection,
+                to: outputURL,
+                onProgress: onProgress
+            )
+        case .youtubeSectionDownload:
+            let outputURL = await trimExporter.saveURL(
+                forTitle: session.title,
+                in: preferences.downloadFolder,
+                selection: selection
+            )
+            let fileURL = try await downloader.downloadYouTubeSection(
+                sourceURL: session.sourceURL,
+                selection: selection,
+                quality: preferences.downloadQuality,
+                destinationURL: outputURL,
+                onProgress: onProgress
+            )
+            _ = try await registerDownloadedClip(fileURL: fileURL, title: session.title, sourceURL: session.sourceURL)
+            return fileURL
+        }
     }
 
-    func copyActiveTrim(_ selection: TrimSelection) async throws {
+    func copyActiveTrim(
+        _ selection: TrimSelection,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws {
         guard let session = activeTrimSession else {
             throw TrimExportError.invalidRange
         }
 
-        let outputURL = try await trimExporter.temporaryURL(for: session.fileURL)
-        let trimmedURL = try await trimExporter.exportTrim(
-            sourceURL: session.fileURL,
-            selection: selection,
-            to: outputURL
-        )
-        ClipboardService.copyFile(trimmedURL)
+        switch session.exportStrategy {
+        case .localFile(let fileURL):
+            let outputURL = try await trimExporter.temporaryURL(for: fileURL)
+            let trimmedURL = try await trimExporter.exportTrim(
+                sourceURL: fileURL,
+                selection: selection,
+                to: outputURL,
+                onProgress: onProgress
+            )
+            ClipboardService.copyFile(trimmedURL)
+        case .youtubeSectionDownload:
+            let outputURL = await trimExporter.saveURL(
+                forTitle: session.title,
+                in: preferences.downloadFolder,
+                selection: selection
+            )
+            let trimmedURL = try await downloader.downloadYouTubeSection(
+                sourceURL: session.sourceURL,
+                selection: selection,
+                quality: preferences.downloadQuality,
+                destinationURL: outputURL,
+                onProgress: onProgress
+            )
+            ClipboardService.copyFile(trimmedURL)
+            _ = try await registerDownloadedClip(fileURL: trimmedURL, title: session.title, sourceURL: session.sourceURL)
+        }
     }
 
     private func startDownloadIfNeeded(_ rawURL: String) async {
@@ -199,30 +248,63 @@ final class AppModel: ObservableObject {
         }
 
         isDownloading = true
-        statusMessage = "Downloading..."
+        downloadProgress = 0
+        statusMessage = URLValidator.isYouTubeURL(sourceURL) ? "Preparing preview..." : "Downloading..."
 
         do {
-            let result = try await downloader.download(sourceURL: sourceURL, destinationFolder: preferences.downloadFolder)
-            let thumbnailPath = try? await thumbnailGenerator.thumbnailPath(for: result.fileURL)
-            let item = DownloadItem(
-                sourceURL: sourceURL,
-                title: result.title,
-                filePath: result.fileURL.path,
-                thumbnailPath: thumbnailPath?.path,
-                createdAt: Date()
-            )
+            if URLValidator.isYouTubeURL(sourceURL) {
+                let preview = try await downloader.prepareYouTubeTrimSession(
+                    sourceURL: sourceURL,
+                    quality: preferences.downloadQuality
+                )
+                activeTrimSession = ActiveTrimSession(
+                    youtubeSourceURL: sourceURL,
+                    title: preview.title,
+                    previewURL: preview.previewURL
+                )
+                inputText = ""
+                statusMessage = "Choose the clip you want to save."
+                downloadProgress = nil
+                isDownloading = false
+                return
+            }
 
-            history.insert(item, at: 0)
-            historyStore.save(history)
+            let result = try await downloader.download(
+                sourceURL: sourceURL,
+                destinationFolder: preferences.downloadFolder,
+                quality: preferences.downloadQuality,
+                onProgress: { [weak self] progress in
+                    Task { @MainActor in
+                        self?.downloadProgress = progress
+                    }
+                }
+            )
+            _ = try await registerDownloadedClip(fileURL: result.fileURL, title: result.title, sourceURL: sourceURL)
             ClipboardService.copyFile(result.fileURL)
-            activeTrimSession = ActiveTrimSession(item: item)
             inputText = ""
             statusMessage = "Downloaded and copied."
         } catch {
             statusMessage = error.localizedDescription
         }
 
+        downloadProgress = nil
         isDownloading = false
+    }
+
+    private func registerDownloadedClip(fileURL: URL, title: String, sourceURL: String) async throws -> DownloadItem {
+        let thumbnailPath = try? await thumbnailGenerator.thumbnailPath(for: fileURL)
+        let item = DownloadItem(
+            sourceURL: sourceURL,
+            title: title,
+            filePath: fileURL.path,
+            thumbnailPath: thumbnailPath?.path,
+            createdAt: Date()
+        )
+
+        history.insert(item, at: 0)
+        historyStore.save(history)
+        activeTrimSession = ActiveTrimSession(item: item)
+        return item
     }
 
     private func presentUpdateResult(

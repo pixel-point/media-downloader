@@ -27,4 +27,26 @@ final class PreferencesStoreTests: XCTestCase {
 
         XCTAssertEqual(store.downloadFolder.standardizedFileURL.path, customURL.standardizedFileURL.path)
     }
+
+    func testDownloadQualityDefaultsToAutomatic() {
+        let suiteName = "PreferencesStoreTests.qualityDefault.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = PreferencesStore(defaults: defaults)
+
+        XCTAssertEqual(store.downloadQuality, .automatic)
+    }
+
+    func testDownloadQualityPersists() {
+        let suiteName = "PreferencesStoreTests.qualityPersist.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = PreferencesStore(defaults: defaults)
+
+        store.downloadQuality = .p2160
+
+        XCTAssertEqual(store.downloadQuality, .p2160)
+    }
 }

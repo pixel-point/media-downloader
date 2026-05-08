@@ -9,7 +9,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         self.preferences = preferences
         self.onCheckForUpdates = onCheckForUpdates
 
-        let contentSize = NSSize(width: 560, height: 430)
+        let contentSize = NSSize(width: 560, height: 476)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -79,7 +79,7 @@ private final class SettingsRootView: NSView {
         layer?.backgroundColor = SettingsColors.windowBackground.cgColor
 
         let generalTitle = sectionTitle("General")
-        let generalCard = GeneralSettingsCard(onCheckForUpdates: onCheckForUpdates)
+        let generalCard = GeneralSettingsCard(preferences: preferences, onCheckForUpdates: onCheckForUpdates)
         let shortcutsTitle = sectionTitle("Shortcuts")
         let shortcutsCard = ShortcutSettingsCard(preferences: preferences)
 
@@ -95,7 +95,7 @@ private final class SettingsRootView: NSView {
             generalCard.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.leading),
             generalCard.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.leading),
             generalCard.topAnchor.constraint(equalTo: generalTitle.bottomAnchor, constant: 22),
-            generalCard.heightAnchor.constraint(equalToConstant: 96),
+            generalCard.heightAnchor.constraint(equalToConstant: 144),
 
             shortcutsTitle.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.leading),
             shortcutsTitle.topAnchor.constraint(equalTo: generalCard.bottomAnchor, constant: 30),
@@ -120,9 +120,12 @@ private final class SettingsRootView: NSView {
 }
 
 private final class GeneralSettingsCard: NSView {
+    private let preferences: PreferencesStore
     private let onCheckForUpdates: () -> Void
+    private let qualityPopUpButton = NSPopUpButton(frame: .zero, pullsDown: false)
 
-    init(onCheckForUpdates: @escaping () -> Void) {
+    init(preferences: PreferencesStore, onCheckForUpdates: @escaping () -> Void) {
+        self.preferences = preferences
         self.onCheckForUpdates = onCheckForUpdates
         super.init(frame: .zero)
         setupCardLayer()
@@ -142,16 +145,24 @@ private final class GeneralSettingsCard: NSView {
         subtitle.textColor = .secondaryLabelColor
         subtitle.translatesAutoresizingMaskIntoConstraints = false
 
+        let qualityTitle = NSTextField(labelWithString: "Default quality")
+        qualityTitle.font = .systemFont(ofSize: 13, weight: .regular)
+        qualityTitle.textColor = .secondaryLabelColor
+        qualityTitle.translatesAutoresizingMaskIntoConstraints = false
+
+        configureQualityPopUp()
+        qualityPopUpButton.translatesAutoresizingMaskIntoConstraints = false
+
         let updateButton = SettingsButton(title: "Check for Updates")
         updateButton.target = self
         updateButton.action = #selector(checkForUpdates)
         updateButton.translatesAutoresizingMaskIntoConstraints = false
 
-        [icon, title, subtitle, updateButton].forEach(addSubview)
+        [icon, title, subtitle, qualityTitle, qualityPopUpButton, updateButton].forEach(addSubview)
 
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.topAnchor.constraint(equalTo: topAnchor, constant: 24),
             icon.widthAnchor.constraint(equalToConstant: 52),
             icon.heightAnchor.constraint(equalToConstant: 52),
 
@@ -161,8 +172,16 @@ private final class GeneralSettingsCard: NSView {
             subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
             subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
 
+            qualityTitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            qualityTitle.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 18),
+
+            qualityPopUpButton.leadingAnchor.constraint(equalTo: qualityTitle.leadingAnchor),
+            qualityPopUpButton.topAnchor.constraint(equalTo: qualityTitle.bottomAnchor, constant: 8),
+            qualityPopUpButton.widthAnchor.constraint(equalToConstant: 210),
+            qualityPopUpButton.heightAnchor.constraint(equalToConstant: 28),
+
             updateButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-            updateButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            updateButton.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
             updateButton.widthAnchor.constraint(equalToConstant: 210),
             updateButton.heightAnchor.constraint(equalToConstant: 28)
         ])
@@ -176,6 +195,15 @@ private final class GeneralSettingsCard: NSView {
         onCheckForUpdates()
     }
 
+    @objc private func qualityDidChange() {
+        guard let selectedTitle = qualityPopUpButton.selectedItem?.title,
+              let quality = DownloadQuality.allCases.first(where: { $0.title == selectedTitle }) else {
+            return
+        }
+
+        preferences.downloadQuality = quality
+    }
+
     private static var versionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let normalizedVersion = version?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -187,6 +215,14 @@ private final class GeneralSettingsCard: NSView {
         return normalizedVersion.lowercased().hasPrefix("v")
             ? normalizedVersion
             : "v\(normalizedVersion)"
+    }
+
+    private func configureQualityPopUp() {
+        qualityPopUpButton.removeAllItems()
+        qualityPopUpButton.addItems(withTitles: DownloadQuality.allCases.map(\.title))
+        qualityPopUpButton.selectItem(withTitle: preferences.downloadQuality.title)
+        qualityPopUpButton.target = self
+        qualityPopUpButton.action = #selector(qualityDidChange)
     }
 }
 

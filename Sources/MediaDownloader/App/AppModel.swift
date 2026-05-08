@@ -24,6 +24,10 @@ final class AppModel: ObservableObject {
         preferences.downloadFolder.path
     }
 
+    var downloadQuality: DownloadQuality {
+        preferences.downloadQuality
+    }
+
     init() {
         history = historyStore.load()
     }
@@ -202,7 +206,11 @@ final class AppModel: ObservableObject {
         statusMessage = "Downloading..."
 
         do {
-            let result = try await downloader.download(sourceURL: sourceURL, destinationFolder: preferences.downloadFolder)
+            let result = try await downloader.download(
+                sourceURL: sourceURL,
+                destinationFolder: preferences.downloadFolder,
+                quality: preferences.downloadQuality
+            )
             let thumbnailPath = try? await thumbnailGenerator.thumbnailPath(for: result.fileURL)
             let item = DownloadItem(
                 sourceURL: sourceURL,

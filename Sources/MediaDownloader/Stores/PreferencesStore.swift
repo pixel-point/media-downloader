@@ -2,6 +2,7 @@ import Foundation
 
 final class PreferencesStore {
     private let downloadFolderKey = "downloadFolderPath"
+    private let downloadQualityKey = "downloadQuality"
     private let hotKeyPrefix = "hotKeyShortcut."
     private let defaults: UserDefaults
 
@@ -21,6 +22,20 @@ final class PreferencesStore {
         }
         set {
             defaults.set(newValue.path, forKey: downloadFolderKey)
+        }
+    }
+
+    var downloadQuality: DownloadQuality {
+        get {
+            guard let rawValue = defaults.string(forKey: downloadQualityKey),
+                  let quality = DownloadQuality(rawValue: rawValue) else {
+                return .defaultValue
+            }
+
+            return quality
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: downloadQualityKey)
         }
     }
 

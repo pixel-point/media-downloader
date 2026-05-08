@@ -21,6 +21,7 @@ struct VideoTrimPanelView: View {
     @State private var timeObserver: Any?
     @State private var boundaryObserver: Any?
     @State private var copySucceeded = false
+    @State private var isPreparingPreview = true
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -44,9 +45,10 @@ struct VideoTrimPanelView: View {
             .allowsHitTesting(false)
 
             videoControls
-                .opacity(isHoveringVideo || isExporting ? 1 : 0)
+                .opacity(isHoveringVideo || isExporting || isPreparingPreview ? 1 : 0)
                 .animation(.easeOut(duration: 0.14), value: isHoveringVideo)
                 .animation(.easeOut(duration: 0.14), value: isExporting)
+                .animation(.easeOut(duration: 0.14), value: isPreparingPreview)
 
             VStack(spacing: 8) {
                 if let feedback {
@@ -116,9 +118,16 @@ struct VideoTrimPanelView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 88)
 
-            if isExporting {
-                TrimExportIndicator()
-                    .frame(width: 30, height: 30)
+            if isPreparingPreview {
+                LoadingOverlay(
+                    title: "Preparing preview",
+                    subtitle: "The download is done. Building the trim view now."
+                )
+            } else if isExporting {
+                LoadingOverlay(
+                    title: "Exporting trim",
+                    subtitle: "Saving your selected clip."
+                )
             }
         }
     }
@@ -138,6 +147,7 @@ struct VideoTrimPanelView: View {
     }
 
     private func loadVideo() {
+        isPreparingPreview = true
         removePlaybackObservers()
         player.replaceCurrentItem(with: AVPlayerItem(url: session.fileURL))
         timeObserver = player.addPeriodicTimeObserver(
@@ -165,6 +175,7 @@ struct VideoTrimPanelView: View {
             playheadTime = 0
             timelineFrames = await generateTimelineFrames(asset: asset, duration: duration)
             installEndBoundaryObserver()
+            isPreparingPreview = false
         }
     }
 
@@ -334,7 +345,7 @@ struct VideoTrimPanelView: View {
         operation: @escaping () async throws -> Void,
         onSuccess: (() -> Void)? = nil
     ) {
-        guard !isExporting else { return }
+        guard !isExporting, !isPreparingPreview else { return }
         isExporting = true
         feedback = nil
 
@@ -408,5 +419,30 @@ private struct TrimExportIndicator: View {
                 rotation = 360
             }
         }
+    }
+}
+
+private struct LoadingOverlay: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            TrimExportIndicator()
+                .frame(width: 30, height: 30)
+
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+
+            Text(subtitle)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(.white.opacity(0.68))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 220)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }

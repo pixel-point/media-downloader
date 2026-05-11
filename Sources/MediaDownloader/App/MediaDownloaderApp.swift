@@ -17,6 +17,13 @@ enum MediaDownloaderApp {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum MenuKeyEquivalent {
+        static let comma = ","
+        static let h = "h"
+        static let m = "m"
+        static let q = "q"
+    }
+
     private let model = AppModel()
     private let preferences = PreferencesStore()
     private var window: SpotlightWindow?
@@ -30,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = makeMainMenu()
         activationHotKey.registerActivationHotKey(preferences.hotKeyShortcut(for: .activateApp))
         hotKeyObserver = NotificationCenter.default.addObserver(
             forName: .mediaDownloaderHotKeysDidChange,
@@ -137,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let window = SpotlightWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 360),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 470),
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -160,15 +168,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rootView: DependencySetupView(
                 status: dependencyStatus,
                 onCopyPrompt: copyInstallPrompt,
+                onInstallWithHomebrew: installMissingDependencies,
+                onOpenHomebrew: openHomebrewWebsite,
                 onCheckAgain: checkDependenciesAgain
             )
-            .frame(width: 520, height: 360)
+            .frame(width: 600, height: 470)
         )
     }
 
     private func copyInstallPrompt() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(DependencyChecker.installPrompt, forType: .string)
+        NSPasteboard.general.setString(DependencyChecker.installPrompt(for: dependencyStatus), forType: .string)
+    }
+
+    private func installMissingDependencies() {
+        guard let command = dependencyStatus.installCommand else {
+            presentDependencySetupError(message: "Homebrew is not available, so there is no install command to run.")
+            return
+        }
+
+        do {
+            try runInTerminal(command: command)
+        } catch {
+            presentDependencySetupError(message: error.localizedDescription)
+        }
+    }
+
+    private func openHomebrewWebsite() {
+        NSWorkspace.shared.open(DependencyChecker.homebrewInstallURL)
     }
 
     private func checkDependenciesAgain() {
@@ -207,6 +234,169 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateActivationHotKey() {
         activationHotKey.registerActivationHotKey(preferences.hotKeyShortcut(for: .activateApp))
+    }
+
+    @objc private func showAboutPanel(_ sender: Any?) {
+        NSApp.orderFrontStandardAboutPanel(sender)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func showSettingsWindow(_ sender: Any?) {
+        model.showSettings()
+    }
+
+    private func makeMainMenu() -> NSMenu {
+        let mainMenu = NSMenu(title: "Main Menu")
+
+        let appMenuItem = NSMenuItem()
+        let windowMenuItem = NSMenuItem()
+        appMenuItem.title = "MediaDownloader"
+        windowMenuItem.title = "Window"
+
+        mainMenu.addItem(appMenuItem)
+        mainMenu.addItem(windowMenuItem)
+
+        let appMenu = NSMenu(title: "MediaDownloader")
+        appMenuItem.submenu = appMenu
+
+        appMenu.addItem(NSMenuItem(
+            title: "About MediaDownloader",
+            action: #selector(showAboutPanel(_:)),
+            keyEquivalent: ""
+        ))
+        appMenu.addItem(.separator())
+
+        let settingsItem = NSMenuItem(
+            title: "Settings…",
+            action: #selector(showSettingsWindow(_:)),
+            keyEquivalent: MenuKeyEquivalent.comma
+        )
+        settingsItem.keyEquivalentModifierMask = [.command]
+        appMenu.addItem(settingsItem)
+        appMenu.addItem(.separator())
+
+        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        let servicesMenu = NSMenu(title: "Services")
+        servicesItem.submenu = servicesMenu
+        appMenu.addItem(servicesItem)
+        NSApp.servicesMenu = servicesMenu
+
+        appMenu.addItem(.separator())
+
+        let hideItem = NSMenuItem(
+            title: "Hide MediaDownloader",
+            action: #selector(NSApplication.hide(_:)),
+            keyEquivalent: MenuKeyEquivalent.h
+        )
+        hideItem.target = NSApp
+        hideItem.keyEquivalentModifierMask = [.command]
+        appMenu.addItem(hideItem)
+
+        let hideOthersItem = NSMenuItem(
+            title: "Hide Others",
+            action: #selector(NSApplication.hideOtherApplications(_:)),
+            keyEquivalent: MenuKeyEquivalent.h
+        )
+        hideOthersItem.target = NSApp
+        hideOthersItem.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(hideOthersItem)
+
+        let showAllItem = NSMenuItem(
+            title: "Show All",
+            action: #selector(NSApplication.unhideAllApplications(_:)),
+            keyEquivalent: ""
+        )
+        showAllItem.target = NSApp
+        appMenu.addItem(showAllItem)
+
+        appMenu.addItem(.separator())
+
+        let quitItem = NSMenuItem(
+            title: "Quit MediaDownloader",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: MenuKeyEquivalent.q
+        )
+        quitItem.target = NSApp
+        quitItem.keyEquivalentModifierMask = [.command]
+        appMenu.addItem(quitItem)
+
+        let windowMenu = NSMenu(title: "Window")
+        windowMenuItem.submenu = windowMenu
+        NSApp.windowsMenu = windowMenu
+
+        let minimizeItem = NSMenuItem(
+            title: "Minimize",
+            action: #selector(NSWindow.performMiniaturize(_:)),
+            keyEquivalent: MenuKeyEquivalent.m
+        )
+        minimizeItem.keyEquivalentModifierMask = [.command]
+        windowMenu.addItem(minimizeItem)
+
+        let zoomItem = NSMenuItem(
+            title: "Zoom",
+            action: #selector(NSWindow.performZoom(_:)),
+            keyEquivalent: ""
+        )
+        windowMenu.addItem(zoomItem)
+        windowMenu.addItem(.separator())
+
+        let bringAllToFrontItem = NSMenuItem(
+            title: "Bring All to Front",
+            action: #selector(NSApplication.arrangeInFront(_:)),
+            keyEquivalent: ""
+        )
+        bringAllToFrontItem.target = NSApp
+        windowMenu.addItem(bringAllToFrontItem)
+
+        return mainMenu
+    }
+
+    private func runInTerminal(command: String) throws {
+        let process = Process()
+        let stderr = Pipe()
+        let escapedCommand = command
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "\(escapedCommand)"
+        end tell
+        """
+
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+            let errorText = String(data: errorData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw DependencySetupError.terminalLaunchFailed(errorText?.isEmpty == false ? errorText! : nil)
+        }
+    }
+
+    private func presentDependencySetupError(message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Could not start installation"
+        alert.informativeText = message
+        alert.icon = NSImage(named: NSImage.applicationIconName)
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+}
+
+private enum DependencySetupError: LocalizedError {
+    case terminalLaunchFailed(String?)
+
+    var errorDescription: String? {
+        switch self {
+        case .terminalLaunchFailed(let details):
+            return details ?? "MediaDownloader could not open Terminal with the install command."
+        }
     }
 }
 

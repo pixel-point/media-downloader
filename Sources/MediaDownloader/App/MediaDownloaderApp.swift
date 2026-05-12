@@ -17,11 +17,19 @@ enum MediaDownloaderApp {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum SetupWindowMetrics {
+        static let width: CGFloat = 600
+        static let initialHeight: CGFloat = 600
+        static let minimumHeight: CGFloat = 560
+        static let verticalMargin: CGFloat = 24
+    }
+
     private let model = AppModel()
     private let preferences = PreferencesStore()
     private var window: SpotlightWindow?
     private var setupWindow: SpotlightWindow?
     private var dependencyStatus = DependencyChecker.check()
+    private var setupWindowHeight: CGFloat = SetupWindowMetrics.initialHeight
     private let forceSetupWindow = ProcessInfo.processInfo.arguments.contains("--show-dependency-setup")
     private var didPassForcedSetup = false
     private lazy var activationHotKey = GlobalHotKeyManager { [weak self] in
@@ -137,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let window = SpotlightWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 360),
+            contentRect: NSRect(x: 0, y: 0, width: SetupWindowMetrics.width, height: setupWindowHeight),
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -160,15 +168,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rootView: DependencySetupView(
                 status: dependencyStatus,
                 onCopyPrompt: copyInstallPrompt,
-                onCheckAgain: checkDependenciesAgain
+                onInstallWithHomebrew: installMissingDependencies,
+                onOpenHomebrew: openHomebrewWebsite,
+                onCheckAgain: checkDependenciesAgain,
+                onPreferredHeightChange: { [weak self] preferredHeight in
+                    self?.updateSetupWindowHeight(preferredHeight, animated: true)
+                }
             )
-            .frame(width: 520, height: 360)
         )
     }
 
     private func copyInstallPrompt() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(DependencyChecker.installPrompt, forType: .string)
+        NSPasteboard.general.setString(DependencyChecker.installPrompt(for: dependencyStatus), forType: .string)
+    }
+
+    private func installMissingDependencies() {
+        guard let command = dependencyStatus.installCommand else {
+            presentDependencySetupError(message: "Homebrew is not available, so there is no install command to run.")
+            return
+        }
+
+        do {
+            try runInTerminal(command: command)
+        } catch {
+            presentDependencySetupError(message: error.localizedDescription)
+        }
+    }
+
+    private func openHomebrewWebsite() {
+        NSWorkspace.shared.open(DependencyChecker.homebrewInstallURL)
     }
 
     private func checkDependenciesAgain() {
@@ -207,6 +236,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateActivationHotKey() {
         activationHotKey.registerActivationHotKey(preferences.hotKeyShortcut(for: .activateApp))
+    }
+
+    private func updateSetupWindowHeight(_ preferredHeight: CGFloat, animated: Bool) {
+        let visibleFrame = currentDisplayVisibleFrame()
+        let clampedHeight = min(
+            max(SetupWindowMetrics.minimumHeight, preferredHeight),
+            visibleFrame.height - SetupWindowMetrics.verticalMargin
+        )
+        setupWindowHeight = clampedHeight
+
+        guard let setupWindow else { return }
+
+        let targetFrame = NSRect(
+            x: visibleFrame.midX - SetupWindowMetrics.width / 2,
+            y: visibleFrame.midY - clampedHeight / 2,
+            width: SetupWindowMetrics.width,
+            height: clampedHeight
+        )
+
+        guard setupWindow.frame != targetFrame else { return }
+        setupWindow.setFrame(targetFrame, display: true, animate: animated)
+    }
+
+    private func runInTerminal(command: String) throws {
+        let process = Process()
+        let stderr = Pipe()
+        let escapedCommand = command
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "\(escapedCommand)"
+        end tell
+        """
+
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+            let errorText = String(data: errorData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw DependencySetupError.terminalLaunchFailed(errorText?.isEmpty == false ? errorText! : nil)
+        }
+    }
+
+    private func presentDependencySetupError(message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Could not start installation"
+        alert.informativeText = message
+        alert.icon = NSImage(named: NSImage.applicationIconName)
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+}
+
+private enum DependencySetupError: LocalizedError {
+    case terminalLaunchFailed(String?)
+
+    var errorDescription: String? {
+        switch self {
+        case .terminalLaunchFailed(let details):
+            return details ?? "MediaDownloader could not open Terminal with the install command."
+        }
     }
 }
 

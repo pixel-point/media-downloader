@@ -22,14 +22,52 @@ struct VideoTrimPanelView: View {
     @State private var boundaryObserver: Any?
     @State private var copySucceeded = false
 
+    private var clampedSelection: TrimSelection {
+        selection.clamped(to: duration)
+    }
+
+    private var currentTimeText: String {
+        PlaybackTimeFormatter.string(for: playheadTime)
+    }
+
+    private var durationText: String {
+        PlaybackTimeFormatter.string(for: duration)
+    }
+
+    private var trimStartText: String {
+        PlaybackTimeFormatter.string(for: clampedSelection.start)
+    }
+
+    private var trimEndText: String {
+        PlaybackTimeFormatter.string(for: clampedSelection.end)
+    }
+
+    private var trimLengthText: String {
+        PlaybackTimeFormatter.string(for: max(clampedSelection.end - clampedSelection.start, 0))
+    }
+
+    private var controlsBottomInset: CGFloat {
+        duration > 0 ? 132 : 88
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.black
 
             VStack(spacing: 0) {
-                VideoPlayerSurface(player: player)
-                    .frame(width: 680, height: 430)
-                    .background(.black)
+                ZStack(alignment: .topLeading) {
+                    VideoPlayerSurface(player: player)
+                        .background(.black)
+
+                    if duration > 0 {
+                        timeBadge(
+                            systemName: isPlaying ? "play.fill" : "clock",
+                            text: "\(currentTimeText) / \(durationText)"
+                        )
+                        .padding(16)
+                    }
+                }
+                .frame(width: 680, height: 430)
 
                 Spacer(minLength: 0)
             }
@@ -47,6 +85,7 @@ struct VideoTrimPanelView: View {
                 .opacity(isHoveringVideo || isExporting ? 1 : 0)
                 .animation(.easeOut(duration: 0.14), value: isHoveringVideo)
                 .animation(.easeOut(duration: 0.14), value: isExporting)
+                .zIndex(1)
 
             VStack(spacing: 8) {
                 if let feedback {
@@ -65,6 +104,26 @@ struct VideoTrimPanelView: View {
                     onSeek: seekPreview
                 )
                 .frame(width: 640, height: 60)
+
+                if duration > 0 {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("From \(trimStartText)")
+                        Spacer()
+                        Text("Playhead \(currentTimeText)")
+                        Spacer()
+                        Text("To \(trimEndText)")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .frame(width: 640)
+
+                    HStack(spacing: 10) {
+                        timeBadge(systemName: "timeline.selection", text: "Trim \(trimStartText) → \(trimEndText)")
+                        Spacer(minLength: 0)
+                        timeBadge(systemName: "scissors", text: "Length \(trimLengthText)")
+                    }
+                    .frame(width: 640)
+                }
             }
             .padding(.bottom, 12)
         }
@@ -114,7 +173,7 @@ struct VideoTrimPanelView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 88)
+            .padding(.bottom, controlsBottomInset)
 
             if isExporting {
                 TrimExportIndicator()
@@ -137,6 +196,19 @@ struct VideoTrimPanelView: View {
         .disabled(isExporting)
     }
 
+    private func timeBadge(systemName: String, text: String) -> some View {
+        Label(text, systemImage: systemName)
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.46), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            }
+    }
+
     private func loadVideo() {
         removePlaybackObservers()
         player.replaceCurrentItem(with: AVPlayerItem(url: session.fileURL))
@@ -147,7 +219,7 @@ struct VideoTrimPanelView: View {
             let seconds = CMTimeGetSeconds(time)
             guard seconds.isFinite else { return }
 
-            let boundedSelection = selection.clamped(to: duration)
+            let boundedSelection = clampedSelection
             if isPlaying, seconds >= boundedSelection.end - 0.001 {
                 stopPlaybackAtSelectionEnd()
                 return
@@ -219,7 +291,7 @@ struct VideoTrimPanelView: View {
     }
 
     private func seekPreview(_ seconds: Double) {
-        let boundedSelection = selection.clamped(to: duration)
+        let boundedSelection = clampedSelection
         let boundedSeconds = min(max(seconds, boundedSelection.start), boundedSelection.end)
         let shouldResumePlayback = isPlaying && boundedSeconds < boundedSelection.end - 0.001
 
@@ -243,7 +315,7 @@ struct VideoTrimPanelView: View {
     }
 
     private func startBoundedPlayback() {
-        let boundedSelection = selection.clamped(to: duration)
+        let boundedSelection = clampedSelection
         guard boundedSelection.end > boundedSelection.start else { return }
 
         installEndBoundaryObserver()
@@ -277,7 +349,7 @@ struct VideoTrimPanelView: View {
 
         guard isPlaying else { return }
 
-        let boundedSelection = selection.clamped(to: duration)
+        let boundedSelection = clampedSelection
         let currentSeconds = CMTimeGetSeconds(player.currentTime())
         guard currentSeconds.isFinite else { return }
 
@@ -291,7 +363,7 @@ struct VideoTrimPanelView: View {
     private func installEndBoundaryObserver() {
         removeEndBoundaryObserver()
 
-        let boundedSelection = selection.clamped(to: duration)
+        let boundedSelection = clampedSelection
         guard boundedSelection.end > boundedSelection.start else { return }
 
         let endTime = CMTime(seconds: boundedSelection.end, preferredTimescale: 600)
@@ -301,7 +373,7 @@ struct VideoTrimPanelView: View {
     }
 
     private func stopPlaybackAtSelectionEnd() {
-        let endSeconds = selection.clamped(to: duration).end
+        let endSeconds = clampedSelection.end
         player.pause()
         isPlaying = false
         playheadTime = endSeconds
@@ -314,7 +386,7 @@ struct VideoTrimPanelView: View {
 
     private func copyTrim() {
         runExport(label: nil) {
-            try await onCopy(selection.clamped(to: duration))
+            try await onCopy(clampedSelection)
         } onSuccess: {
             copySucceeded = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -325,7 +397,7 @@ struct VideoTrimPanelView: View {
 
     private func saveTrim() {
         runExport(label: nil) {
-            _ = try await onSave(selection.clamped(to: duration))
+            _ = try await onSave(clampedSelection)
         }
     }
 
